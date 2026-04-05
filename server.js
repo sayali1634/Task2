@@ -1,3 +1,4 @@
+// server.js
 const express = require("express");
 const mysql = require("mysql2");
 const cors = require("cors");
@@ -6,84 +7,92 @@ const app = express();
 app.use(cors());
 app.use(express.json());
 
-// MySQL connection
 const db = mysql.createConnection({
   host: "localhost",
   user: "root",
-  password: "", // set your MySQL password
+  password: "",  // your MySQL password
   database: "groupdb",
-  port: 3307
+  port: 3307     // MySQL port
 });
 
 db.connect(err => {
-  if (err) {
-    console.log("❌ DB Error:", err);
-  } else {
-    console.log("✅ MySQL Connected");
-  }
+  if(err) console.log("DB Error:", err);
+  else console.log("✅ DB Connected");
 });
 
-// ➕ Add Group
-app.post("/groups", (req, res) => {
+// ---------------- GROUP ----------------
+
+// Add group
+app.post("/groups", (req,res)=>{
   const { group_name } = req.body;
+  if(!group_name) return res.status(400).json({ message:"Group required" });
 
-  if (!group_name || group_name.trim() === "") {
-    return res.status(400).json({ message: "Group name required" });
-  }
-
-  const checkQuery = "SELECT * FROM groups WHERE group_name = ?";
-  db.query(checkQuery, [group_name], (err, result) => {
-    if (err) return res.status(500).json({ message: "Server error" });
-    if (result.length > 0) return res.status(400).json({ message: "Group Already Exists" });
-
-    const insertQuery = "INSERT INTO groups (group_name) VALUES (?)";
-    db.query(insertQuery, [group_name], (err) => {
-      if (err) return res.status(500).json({ message: "Server error" });
-      res.json({ message: "Group added successfully" });
-    });
+  db.query("INSERT INTO groups(group_name,is_active) VALUES(?,true)", [group_name], (err,r)=>{
+    if(err) return res.status(500).json({ message:err.message });
+    res.json({ message:"Group added" });
   });
 });
 
-// 📋 Get Groups
-app.get("/groups", (req, res) => {
-  const query = "SELECT * FROM groups";
-  db.query(query, (err, result) => {
-    if (err) return res.status(500).json({ message: "Server error" });
-    res.json(result);
+// Get groups
+app.get("/groups", (req,res)=>{
+  db.query("SELECT * FROM groups WHERE is_active=true", (err,r)=>{
+    if(err) return res.status(500).json({ message:err.message });
+    res.json(r);
   });
 });
 
-// ✏️ Update Group
-app.put("/groups/:id", (req, res) => {
-  const { id } = req.params;
-  const { group_name } = req.body;
+// ---------------- CHAINS ----------------
 
-  if (!group_name || group_name.trim() === "") {
-    return res.status(400).json({ message: "Group name cannot be empty" });
-  }
-
-  const query = "UPDATE groups SET group_name=? WHERE group_id=?";
-  db.query(query, [group_name, id], (err) => {
-    if (err) return res.status(500).json({ message: "Server error" });
-    res.json({ message: "Group updated successfully" });
-  });
+// Add chain
+app.post("/chains", (req,res)=>{
+  const { company_name, gstn_no, group_id } = req.body;
+  db.query(
+    "INSERT INTO chains(company_name,gstn_no,group_id,is_active,created_at,updated_at) VALUES(?,?,?,?,NOW(),NOW())",
+    [company_name,gstn_no,group_id,true],
+    (err,r)=>{
+      if(err) return res.status(500).json({ message:err.message });
+      res.json({ message:"Chain added" });
+    }
+  );
 });
 
-// 🔄 Soft Delete (Deactivate)
-// 🔄 Toggle Active (Soft Delete)
-app.patch("/groups/:id/toggle", (req, res) => {
-  const { id } = req.params;
-  const query = "UPDATE groups SET is_active = NOT is_active WHERE group_id = ?";
-
-  db.query(query, [id], (err, result) => {
-    if (err) return res.status(500).json({ message: "DB error" });
-
-    // Return the updated row
-    db.query("SELECT * FROM groups WHERE group_id = ?", [id], (err2, rows) => {
-      if (err2) return res.status(500).json({ message: "DB error" });
-      res.json(rows[0]); // <-- This includes is_active
-    });
-  });
+// Get chains (only active)
+app.get("/chains", (req,res)=>{
+  db.query(
+    `SELECT c.*, g.group_name 
+     FROM chains c 
+     JOIN groups g ON c.group_id = g.group_id
+     WHERE c.is_active = true`,
+    (err,r)=>{
+      if(err) return res.status(500).json({ message:err.message });
+      res.json(r);
+    }
+  );
 });
 
-app.listen(5000, () => console.log("Server running on port 5000"));
+// Edit chain
+app.put("/chains/:id",(req,res)=>{
+  const { company_name, gstn_no, group_id } = req.body;
+  db.query(
+    "UPDATE chains SET company_name=?, gstn_no=?, group_id=?, updated_at=NOW() WHERE chain_id=?",
+    [company_name,gstn_no,group_id,req.params.id],
+    (err,r)=>{
+      if(err) return res.status(500).json({ message:err.message });
+      res.json({ message:"Chain updated" });
+    }
+  );
+});
+
+// Soft Delete chain
+app.patch("/chains/:id/delete",(req,res)=>{
+  db.query(
+    "UPDATE chains SET is_active=false WHERE chain_id=?",
+    [req.params.id],
+    (err,r)=>{
+      if(err) return res.status(500).json({ message:err.message });
+      res.json({ message:"Chain deleted" });
+    }
+  );
+});
+
+app.listen(5000,()=>console.log("🚀 Backend running on http://localhost:5000"));
